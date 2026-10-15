@@ -42,6 +42,76 @@ Never use or share the Supabase **secret** or **service_role** key. This app doe
 
 PDF reading is best effort because layouts change. The preview lets you untick wrong rows before saving.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    User([You: phone or computer])
+
+    subgraph Browser["Browser (Next.js client)"]
+        Pages["Pages<br/>Dashboard / Transactions<br/>Import / Categories / Login"]
+        Parsers["Statement parsers<br/>CSV + PDF read locally<br/>file never uploaded"]
+        Rules["Keyword rules<br/>categorize.ts"]
+        Idle["Idle lock<br/>sign out after 15 min"]
+    end
+
+    subgraph Server["Next.js server"]
+        Proxy["proxy.ts<br/>login check + CSP nonce<br/>no-store headers"]
+        API["/api/categorize<br/>origin check, rate limit,<br/>input validation"]
+    end
+
+    subgraph Supabase["Supabase"]
+        Auth["Auth<br/>email + password"]
+        DB[("Postgres<br/>categories / category_rules<br/>transactions")]
+        RLS{{"Row Level Security<br/>user_id = auth.uid()"}}
+    end
+
+    Groq["Groq API<br/>optional AI suggestions"]
+
+    User --> Pages
+    Pages -->|every request| Proxy
+    Proxy -->|verify session| Auth
+    Pages -->|sign in / out| Auth
+    Pages --> Parsers --> Rules
+    Rules -->|import / add / edit| DB
+    Pages -->|read data| DB
+    DB --- RLS
+    Pages -->|unmatched merchant names only| API
+    API -->|check login| Auth
+    API -->|read your category names| DB
+    API -->|description text only| Groq
+    Idle --> Auth
+```
+
+### Import flow
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant B as Browser
+    participant R as Keyword rules
+    participant S as Server /api/categorize
+    participant G as Groq
+    participant D as Supabase DB
+
+    You->>B: Drop a CSV or PDF statement
+    B->>B: Parse rows locally (file stays on your device)
+    B->>R: Match each description to a category
+    R-->>B: Matched rows, plus a list left uncategorized
+    opt Suggest with AI (optional)
+        B->>S: Unmatched descriptions only
+        S->>S: Check login, origin, rate limit
+        S->>G: Description text only (no amounts or dates)
+        G-->>S: Category guesses
+        S->>S: Keep only names that exist in your categories
+        S-->>B: Validated suggestions
+    end
+    You->>B: Review the preview, untick wrong rows
+    B->>D: Save rows with a fingerprint (duplicates skipped)
+    D->>D: Row Level Security allows only your own rows
+    D-->>B: Count of newly added transactions
+```
+
 ## How your data is protected
 
 - **Row Level Security:** the database itself only returns rows that belong to the signed-in user, even if the app had a bug.
