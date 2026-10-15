@@ -1,0 +1,39 @@
+# Secrets. Never commit these.
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Dependencies
+node_modules
+.pnp
+.pnp.*
+
+# Next.js build output
+.next
+out
+next-env.d.ts
+
+# Test and tooling output
+coverage
+*.tsbuildinfo
+.vercel
+
+# Statements and exports. These contain your real transactions.
+*.csv
+!tests/fixtures/*.csv
+statements/
+transactions.csv
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
