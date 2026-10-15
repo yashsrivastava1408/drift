@@ -2,10 +2,10 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, FileUp, Sparkles } from "lucide-react";
+import { CheckCircle2, FileUp, Lock, Sparkles } from "lucide-react";
 import { useData } from "@/components/data-provider";
 import { CategorySelect } from "@/components/category-select";
-import { PageHeader } from "@/components/ui";
+import { Modal, PageHeader } from "@/components/ui";
 import { categorize } from "@/lib/categorize";
 import { fingerprintAll } from "@/lib/fingerprint";
 import { formatDate, money } from "@/lib/format";
@@ -30,14 +30,26 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ added: number; total: number } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  // A locked PDF waits here until the right password is typed. The password is never stored.
+  const [locked, setLocked] = useState<{ file: File; wrong: boolean } | null>(null);
+  const [pw, setPw] = useState("");
 
   const handleFile = useCallback(
-    async (file: File) => {
+    async (file: File, password?: string) => {
       setError(null);
       setNote(null);
       setResult(null);
       setBusy(true);
-      const parsed = await parseStatement(file);
+      const parsed = await parseStatement(file, password);
+      if (parsed.password) {
+        setRows(null);
+        setLocked({ file, wrong: parsed.password === "wrong" });
+        setPw("");
+        setBusy(false);
+        return;
+      }
+      setLocked(null);
+      setPw("");
       if (parsed.rows.length === 0) {
         setRows(null);
         setError(parsed.error ?? "Nothing could be read from that file.");
@@ -248,6 +260,45 @@ export default function ImportPage() {
           )}
         </>
       )}
+
+      <Modal open={locked !== null} title="Locked PDF" onClose={() => { setLocked(null); setPw(""); }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (locked && pw) void handleFile(locked.file, pw);
+          }}
+          className="space-y-4"
+        >
+          <p className="flex items-start gap-2 text-sm text-muted">
+            <Lock size={16} className="mt-0.5 shrink-0" aria-hidden />
+            <span>
+              <strong className="text-ink">{locked?.file.name}</strong> is password protected. Enter its password to read it.
+              It is used only in this browser to open the file, and is never sent or saved.
+            </span>
+          </p>
+          <div>
+            <label htmlFor="pdfpw" className="label">PDF password</label>
+            <input
+              id="pdfpw"
+              type="password"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className="input"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+            />
+          </div>
+          {locked?.wrong && <p role="alert" className="text-sm text-bad">That password did not open the PDF. Try again.</p>}
+          <p className="text-xs text-muted">
+            Banks often use your date of birth, or the last digits of your phone or account number. The email or page that gave you the statement usually says which.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-ghost" onClick={() => { setLocked(null); setPw(""); }}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={!pw || busy}>{busy ? "Opening..." : "Unlock"}</button>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }

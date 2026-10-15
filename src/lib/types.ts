@@ -36,4 +36,6 @@ export interface ParseResult {
   rows: ParsedTxn[];
   skipped: number;
   error?: string;
+  /** Set when a PDF is locked: "required" means no password was given, "wrong" means it did not fit. */
+  password?: "required" | "wrong";
 }

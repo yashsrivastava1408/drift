@@ -40,6 +40,8 @@ Never use or share the Supabase **secret** or **service_role** key. This app doe
 - **PhonePe:** History, then the statement download option, pick dates, and save the PDF.
 - **Google Pay:** use your bank statement, or request your data from Google Takeout.
 
+**Locked PDFs:** if a statement is password protected, the app asks for the password and opens it in your browser. The password is only used to open the file. It is never sent anywhere or saved. Banks often use your date of birth or the last digits of your phone or account number.
+
 PDF reading is best effort because layouts change. The preview lets you untick wrong rows before saving.
 
 ## Architecture

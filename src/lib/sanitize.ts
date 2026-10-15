@@ -4,5 +4,6 @@ export function cleanText(input: string, max = 200): string {
     .replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, max);
+    .slice(0, max)
+    .trim();
 }

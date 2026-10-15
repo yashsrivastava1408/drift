@@ -6,17 +6,26 @@ import { MAX_ROWS } from "./csv";
 const DATE_START =
   /^((?:[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})|(?:\d{1,2}[\s\-/.][A-Za-z]{3,9}[\s\-/.,]*\d{2,4})|(?:\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})|(?:\d{4}-\d{2}-\d{2}))/;
 
+const PAGE_BREAK = "\f";
+
+/** Footer and legal lines that sit under the last transaction on a page and are not part of it. */
+const BOILERPLATE = /^page\b|computer[- ]generated|disclaimer|customer care|toll[- ]?free|\bwww\./i;
+
 /** Pulls the text out of a PDF page by page, keeping each visual line together. */
-async function extractLines(file: File): Promise<string[]> {
+async function extractLines(file: File, password?: string): Promise<string[]> {
   const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+  // Only a browser needs to be told where the worker file is; Node uses its own default.
+  if (typeof window !== "undefined") {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+  }
 
   const data = new Uint8Array(await file.arrayBuffer());
-  const doc = await pdfjs.getDocument({ data }).promise;
+  const doc = await pdfjs.getDocument({ data, password }).promise;
   const lines: string[] = [];
 
   for (let p = 1; p <= Math.min(doc.numPages, 200); p++) {
     const page = await doc.getPage(p);
+    lines.push(PAGE_BREAK);
     const content = await page.getTextContent();
     const byY = new Map<number, { x: number; str: string }[]>();
     for (const item of content.items) {
@@ -82,21 +91,37 @@ function blockToTxn(block: string[]): ParsedTxn | null {
  * so the text is cut into blocks at each date and each block is read on its own.
  * The import screen shows a preview so wrong rows can be removed before saving.
  */
-export async function parsePdf(file: File): Promise<ParseResult> {
+export async function parsePdf(file: File, password?: string): Promise<ParseResult> {
   let lines: string[];
   try {
-    lines = await extractLines(file);
-  } catch {
-    return { rows: [], skipped: 0, error: "Could not read this PDF. If it has a password, remove it first." };
+    lines = await extractLines(file, password);
+  } catch (e) {
+    // pdf.js reports locked files as a PasswordException: code 1 = needs a password, code 2 = wrong password.
+    const err = e as { name?: string; code?: number };
+    if (err?.name === "PasswordException") {
+      const wrong = err.code === 2;
+      return {
+        rows: [],
+        skipped: 0,
+        password: wrong ? "wrong" : "required",
+        error: wrong ? "That password did not open the PDF." : "This PDF is locked.",
+      };
+    }
+    return { rows: [], skipped: 0, error: "Could not read this PDF. The file may be damaged." };
   }
   if (lines.join("").trim().length < 20) {
     return { rows: [], skipped: 0, error: "This PDF has no readable text (it may be a scanned image). Try the CSV from your bank instead." };
   }
 
   const blocks: string[][] = [];
+  // A new page closes the open block, so the next page's header lines cannot stick to the last row above.
+  let open = false;
   for (const line of lines) {
-    if (DATE_START.test(line) && parseDate(line.match(DATE_START)![1])) blocks.push([line]);
-    else if (blocks.length) blocks[blocks.length - 1].push(line);
+    if (line === PAGE_BREAK) open = false;
+    else if (DATE_START.test(line) && parseDate(line.match(DATE_START)![1])) {
+      blocks.push([line]);
+      open = true;
+    } else if (open && !BOILERPLATE.test(line)) blocks[blocks.length - 1].push(line);
   }
 
   const rows: ParsedTxn[] = [];
